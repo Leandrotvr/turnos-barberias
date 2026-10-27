@@ -1,0 +1,40 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#121212">
+<title>Reservar turno</title>
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="icon" href="icons/icon-192.png">
+<link rel="apple-touch-icon" href="icons/icon-192.png">
+<link rel="stylesheet" href="styles.css">
+</head>
+<body>
+<header class="hero">
+  <h1 class="brand" id="brand">Reservar turno</h1>
+  <p class="tag" id="tag"></p>
+  <div class="meta" id="meta"></div>
+</header>
+<main class="wrap">
+  <section id="mine" class="stack hidden"></section>
+  <section id="booking">
+    <div class="steps" id="steps" aria-hidden="true"></div>
+    <div id="view" aria-live="polite"></div>
+  </section>
+  <section class="card stack" style="margin-top:24px">
+    <h3>¿Ya tenés un turno?</h3>
+    <p class="muted small" style="margin:0">Poné tu código para cancelarlo o cambiarlo. No hace falta instalar nada ni crear cuenta.</p>
+    <div class="row"><input id="lookup" placeholder="Código (6 letras)" maxlength="6" autocapitalize="characters" autocomplete="off" aria-label="Código de turno"><button class="btn" id="lookupBtn">Buscar</button></div>
+    <div id="lookupOut"></div>
+  </section>
+</main>
+<p class="foot">Reservas sin comisiones ni cargos para vos · <a href="admin.html" id="adminLink">Acceso del local</a></p>
+<script src="config.js"></script>
+<script src="core.js"></script>
+<script src="store.js"></script>
+<script src="data.js"></script>
+<script src="app.js"></script>
+<script>if ('serviceWorker' in navigator && location.protocol.startsWith('http')) navigator.serviceWorker.register('sw.js').catch(function(){});</script>
+</body>
+</html>
