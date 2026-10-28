@@ -250,7 +250,25 @@
     const link = base + 'index.html?s=' + Data.slug;
     main.innerHTML = '<div class="stack"><div class="card stack"><h3>Hola, ' + esc(T.barberName(S, BARBER)) + '</h3><p class="muted small" style="margin:0">Acá ves y manejás tu agenda. Los precios, horarios y avisos los maneja el dueño del local.</p></div>' +
       '<div class="card stack"><h3>Link para tus clientes</h3><input readonly value="' + esc(link) + '" id="lnk" aria-label="Link de reservas"><button class="btn" data-act="copylink">Copiar link</button></div>' +
+      infoCard() +
       '<button class="btn" data-act="logout">Cerrar sesión</button></div>';
+  }
+
+  function infoCard() {
+    const st = S.settings;
+    const f = (id, label, v, extra) => '<div class="field"><label>' + label + '</label><input id="' + id + '" value="' + esc(v) + '" ' + (extra || '') + '></div>';
+    return '<div class="card stack"><h3>Datos del local</h3><p class="muted small" style="margin:0">Lo que cargues acá lo ven los clientes en la página de reservas.</p>' +
+      f('inf-name', 'Nombre de la barbería', st.name) + f('inf-tagline', 'Frase corta', st.tagline) + f('inf-address', 'Dirección', st.address) +
+      f('inf-whatsapp', 'WhatsApp del local (con código de área)', st.whatsapp, 'inputmode="tel" placeholder="3794 123456"') + f('inf-instagram', 'Instagram (sin @)', st.instagram) +
+      '<button class="btn primary" data-act="infosave">Guardar datos</button></div>';
+  }
+  async function infoSave() {
+    const v = id => ($('#' + id).value || '').trim();
+    const info = { name: v('inf-name'), tagline: v('inf-tagline'), address: v('inf-address'), whatsapp: v('inf-whatsapp'), instagram: v('inf-instagram').replace('@', '') };
+    if (info.name.length < 2) { toast('Poné el nombre de la barbería'); return; }
+    const r = await Data.barberInfo(KEY, info);
+    if (r && r.ok === false) { toast(r.error || 'No se pudo guardar'); return; }
+    toast('Datos guardados'); await reload();
   }
 
   async function dlgBarberLink(i) {
@@ -388,6 +406,7 @@
     else if (act === 'delsvc') { const i = Number(el.dataset.i); if (window.confirm('¿Eliminar "' + S.services[i].name + '"? Los turnos ya dados se conservan.')) { S.services.splice(i, 1); save(); render(); } }
     else if (act === 'addbarber') { S.barbers.push({ id: 'b' + T.uid(), name: 'Nuevo barbero', commissionPct: 50, active: true, schedule: JSON.parse(JSON.stringify(S.barbers[0] ? S.barbers[0].schedule : T.defaultState().barbers[0].schedule)) }); save(); render(); }
     else if (act === 'delbarber') { const i = Number(el.dataset.i); if (S.barbers.length <= 1) { toast('Tiene que haber al menos un barbero'); return; } if (window.confirm('¿Eliminar a ' + S.barbers[i].name + '? Sus turnos futuros seguirán en la agenda.')) { S.barbers.splice(i, 1); save(); render(); } }
+    else if (act === 'infosave') infoSave();
     else if (act === 'barberlink') dlgBarberLink(Number(el.dataset.i));
     else if (act === 'copyblink') { const i = $('#blnk'); i.select(); try { navigator.clipboard.writeText(i.value); } catch (x) { document.execCommand('copy'); } toast('Link copiado'); }
     else if (act === 'export') Store.download('turnos-copia-' + T.dateStr(new Date()) + '.json', JSON.stringify(S, null, 1), 'application/json');

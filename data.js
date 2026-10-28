@@ -108,6 +108,7 @@
     barberPut(bkey, a, isNew) {
       return guard(async () => { const r = await rpc('bb_barber_put_appt', { p_slug: slug, p_bkey: bkey, p_appt: a, p_is_new: !!isNew }); return r.ok ? r : fail(r.error); });
     },
+    barberInfo(bkey, info) { return guard(async () => rpc('bb_barber_save_info', { p_slug: slug, p_bkey: bkey, p_info: info })); },
     barberKey(key, barberId) { return guard(async () => rpc('bb_admin_barber_key', { p_slug: slug, p_key: key, p_barber: barberId })); },
     msg: code => MSG[code] || MSG.offline
   };
