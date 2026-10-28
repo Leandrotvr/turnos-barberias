@@ -16,6 +16,8 @@
       if (p === 'SCRIPT' || p === 'STYLE' || p === 'TEXTAREA') continue;
       var t = fix(n.nodeValue); if (t !== n.nodeValue) n.nodeValue = t;
     }
+    var ph = document.querySelectorAll('[placeholder]');
+    for (var j = 0; j < ph.length; j++) { var v = ph[j].getAttribute('placeholder').replace('degradé bajo', 'es mi primera consulta'); if (v !== ph[j].getAttribute('placeholder')) ph[j].setAttribute('placeholder', v); }
     var d = fix(document.title); if (d !== document.title) document.title = d;
   }
   new MutationObserver(run).observe(document.documentElement, { childList: true, subtree: true, characterData: true });
