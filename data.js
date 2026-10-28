@@ -98,6 +98,17 @@
       return guard(async () => rpc('bb_admin_set_notify', { p_slug: slug, p_key: key, p_tg_token: o.token, p_tg_chat: o.chat, p_resend: o.resend, p_from: o.from }));
     },
     testNotify(key) { return guard(async () => rpc('bb_admin_test_notify', { p_slug: slug, p_key: key })); },
+
+    /* ---- Barbero (link propio: sólo ve y maneja su agenda) ---- */
+    async barberLoad(bkey) {
+      const r = await rpc('bb_barber_get', { p_slug: slug, p_bkey: bkey, p_from: T.addDays(T.dateStr(new Date()), -120) });
+      const s = baseState(r.config); s.appts = r.appts || [];
+      return { state: s, notify: null, configured: true, barberId: r.barberId };
+    },
+    barberPut(bkey, a, isNew) {
+      return guard(async () => { const r = await rpc('bb_barber_put_appt', { p_slug: slug, p_bkey: bkey, p_appt: a, p_is_new: !!isNew }); return r.ok ? r : fail(r.error); });
+    },
+    barberKey(key, barberId) { return guard(async () => rpc('bb_admin_barber_key', { p_slug: slug, p_key: key, p_barber: barberId })); },
     msg: code => MSG[code] || MSG.offline
   };
   root.Data = Data;

@@ -6,6 +6,7 @@
   let KEY = '';          // clave del local (modo en línea)
   let NOTIFY = null;     // estado de avisos (modo en línea)
   const REMOTE = Data.remote;
+  let BARBER = '';        // en modo barbero (link propio): id del barbero
   const $ = s => document.querySelector(s);
   const esc = s => String(s == null ? '' : s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
   const main = $('#main'), dlg = $('#dlg');
@@ -24,7 +25,7 @@
   let queue = Promise.resolve();
   function save() {
     if (!REMOTE) { Store.save(S); return Promise.resolve(); }
-    const cfgChanged = JSON.stringify(cfgOf()) !== snap.cfg;
+    const cfgChanged = !BARBER && JSON.stringify(cfgOf()) !== snap.cfg;
     const changed = S.appts.filter(a => snap.appts.get(a.id) !== JSON.stringify(a));
     const isNew = new Set(changed.filter(a => !snap.appts.has(a.id)).map(a => a.id));
     const cfg = cfgOf();
@@ -33,7 +34,7 @@
       try {
         if (cfgChanged) { const r = await Data.adminSaveConfig(KEY, cfg); if (r && r.ok === false) throw new Error('cfg'); }
         for (const a of changed) {
-          const r = await Data.adminPutAppt(KEY, a, isNew.has(a.id));
+          const r = await (BARBER ? Data.barberPut(KEY, a, isNew.has(a.id)) : Data.adminPutAppt(KEY, a, isNew.has(a.id)));
           if (!r.ok) { toast(r.error || 'No se pudo guardar el turno'); await reload(); return; }
         }
       } catch (e) { toast('No se pudo guardar. Revisá la conexión.'); await reload(); }
@@ -43,7 +44,7 @@
   const refresh = () => { if (!REMOTE) S = Store.load(); };
   async function reload() {
     if (!REMOTE) { S = Store.load(); render(); return; }
-    try { const r = await Data.adminLoad(KEY); S = r.state; NOTIFY = r.notify; takeSnap(); render(); }
+    try { const r = await (BARBER ? Data.barberLoad(KEY) : Data.adminLoad(KEY)); S = r.state; NOTIFY = r.notify; takeSnap(); render(); }
     catch (e) { toast('No se pudo actualizar. Revisá la conexión.'); }
   }
   function toast(msg) {
@@ -62,17 +63,18 @@
 
   /* ---------- Acceso ---------- */
   const keyName = () => 'turnos.k.' + Data.slug;
+  const bkeyName = () => 'turnos.b.' + Data.slug;
   function authed() {
     if (REMOTE) return !!KEY;
     try { return sessionStorage.getItem('turnos.auth') === S.settings.pin; } catch (e) { return false; }
   }
-  async function loginRemote(key) {
+  async function loginRemote(key, asBarber) {
     try {
-      const r = await Data.adminLoad(key);
-      KEY = key; S = r.state; NOTIFY = r.notify;
-      try { localStorage.setItem(keyName(), key); } catch (e) { /* ok */ }
+      const r = asBarber ? await Data.barberLoad(key) : await Data.adminLoad(key);
+      KEY = key; S = r.state; NOTIFY = r.notify; BARBER = asBarber ? r.barberId : '';
+      try { localStorage.setItem(asBarber ? bkeyName() : keyName(), key); } catch (e) { /* ok */ }
       takeSnap();
-      if (!r.configured) await save_defaults();
+      if (!asBarber && !r.configured) await save_defaults();
       return true;
     } catch (e) { return String(e.message || '').includes('auth') ? false : null; }
   }
@@ -83,11 +85,12 @@
       $('#loginHelp').textContent = 'Ingresá la clave de tu local';
       $('#pin').type = 'password'; $('#pin').inputMode = 'text';
       if (!KEY) {
-        let k = '';
-        const h = location.hash.match(/k=([a-f0-9]+)/);
-        if (h) { k = h[1]; history.replaceState(null, '', location.pathname + location.search); }
+        let k = '', asB = false;
+        const h = location.hash.match(/([kb])=([a-f0-9]+)/);
+        if (h) { k = h[2]; asB = h[1] === 'b'; history.replaceState(null, '', location.pathname + location.search); }
         if (!k) { try { k = localStorage.getItem(keyName()) || ''; } catch (e) { /* ok */ } }
-        if (k) { const ok = await loginRemote(k); if (ok === false) { try { localStorage.removeItem(keyName()); } catch (e) { /* ok */ } } }
+        if (!k) { try { k = localStorage.getItem(bkeyName()) || ''; asB = !!k; } catch (e) { /* ok */ } }
+        if (k) { const ok = await loginRemote(k, asB); if (ok === false) { try { localStorage.removeItem(asB ? bkeyName() : keyName()); } catch (e) { /* ok */ } } }
       }
       if (KEY) { $('#login').classList.add('hidden'); $('#app').classList.remove('hidden'); render(); return; }
       $('#app').classList.add('hidden'); $('#login').classList.remove('hidden'); $('#pin').focus(); return;
@@ -153,14 +156,14 @@
     const expected = live.reduce((t, a) => t + a.price, 0);
     const tomorrow = T.addDays(T.dateStr(new Date()), 1);
     const nRem = S.appts.filter(a => a.date === tomorrow && a.status === 'confirmada' && a.phone && !a.reminded).length;
-    const blocks = S.blocks.filter(b => b.date === day);
+    const blocks = S.blocks.filter(b => b.date === day && (!BARBER || !b.barberId || b.barberId === BARBER));
     main.innerHTML =
       '<div class="row wrapx" style="margin-bottom:12px"><button class="btn sm" data-act="prev" aria-label="Día anterior">◀</button><input type="date" id="dayPick" value="' + day + '" style="width:auto;min-height:38px" aria-label="Fecha"><button class="btn sm" data-act="next" aria-label="Día siguiente">▶</button><button class="btn sm" data-act="today">Hoy</button><b class="grow" style="text-align:right;text-transform:capitalize">' + T.dateLabel(day) + '</b></div>' +
-      '<div class="row wrapx" style="margin-bottom:12px"><button class="btn primary sm" data-act="new">+ Turno</button><button class="btn sm" data-act="walkin">Cliente sin turno</button><button class="btn sm" data-act="block">Bloquear horario</button>' +
+      '<div class="row wrapx" style="margin-bottom:12px"><button class="btn primary sm" data-act="new">+ Turno</button><button class="btn sm" data-act="walkin">Cliente sin turno</button>' + (BARBER ? '' : '<button class="btn sm" data-act="block">Bloquear horario</button>') +
       '<button class="btn sm" data-act="remind">Recordatorios de mañana' + (nRem ? ' (' + nRem + ')' : '') + '</button></div>' +
       '<div class="kpis" style="margin-bottom:12px"><div class="kpi"><b>' + live.length + '</b><span>turnos</span></div><div class="kpi"><b>' + T.money(expected) + '</b><span>previsto del día</span></div><div class="kpi"><b>' + list.filter(a => a.status === 'pendiente' && !T.expired(a, S, Date.now())).length + '</b><span>esperando seña</span></div></div>' +
-      (S.barbers.length > 1 ? '<div class="chips" style="margin-bottom:12px"><button class="chip' + (barberFilter === 'all' ? ' sel' : '') + '" data-act="bf" data-id="all">Todos</button>' + S.barbers.filter(b => b.active !== false).map(b => '<button class="chip' + (barberFilter === b.id ? ' sel' : '') + '" data-act="bf" data-id="' + b.id + '">' + esc(b.name) + '</button>').join('') + '</div>' : '') +
-      blocks.map(b => '<div class="notice" style="margin-bottom:8px">⛔ ' + (b.barberId ? esc(T.barberName(S, b.barberId)) : 'Todo el local') + ': ' + (b.start === '00:00' && b.end === '24:00' ? 'todo el día' : b.start + '–' + b.end) + (b.reason ? ' · ' + esc(b.reason) : '') + ' <button class="btn sm ghost" data-act="delblock" data-id="' + b.id + '">Quitar</button></div>').join('') +
+      (S.barbers.length > 1 && !BARBER ? '<div class="chips" style="margin-bottom:12px"><button class="chip' + (barberFilter === 'all' ? ' sel' : '') + '" data-act="bf" data-id="all">Todos</button>' + S.barbers.filter(b => b.active !== false).map(b => '<button class="chip' + (barberFilter === b.id ? ' sel' : '') + '" data-act="bf" data-id="' + b.id + '">' + esc(b.name) + '</button>').join('') + '</div>' : '') +
+      blocks.map(b => '<div class="notice" style="margin-bottom:8px">⛔ ' + (b.barberId ? esc(T.barberName(S, b.barberId)) : 'Todo el local') + ': ' + (b.start === '00:00' && b.end === '24:00' ? 'todo el día' : b.start + '–' + b.end) + (b.reason ? ' · ' + esc(b.reason) : '') + (BARBER ? '' : ' <button class="btn sm ghost" data-act="delblock" data-id="' + b.id + '">Quitar</button>') + '</div>').join('') +
       (list.length ? list.map(apptRow).join('') : '<div class="card center muted">No hay turnos este día.</div>');
   }
 
@@ -204,6 +207,7 @@
     return '<div class="field"><label>' + label + '</label><input data-k="' + key + '" ' + (type === 'num' ? 'type="number" inputmode="numeric" data-num="1"' : type === 'color' ? 'type="color"' : 'type="text"') + ' value="' + esc(v) + '" ' + (extra || '') + '></div>';
   }
   function renderAjustes() {
+    if (BARBER) { renderAjustesBarbero(); return; }
     const st = S.settings;
     const base = location.href.replace(/admin\.html.*$/, '').replace(/[?#].*$/, '');
     const link = base + 'index.html' + (REMOTE ? '?s=' + Data.slug : '');
@@ -228,7 +232,7 @@
       '<details class="card"><summary>Barberos y horarios (' + S.barbers.length + ')</summary><div class="stack" style="margin-top:12px">' + S.barbers.map((b, i) =>
         '<div class="card stack"><div class="grid2"><div class="field"><label>Nombre</label><input data-k="barbers.' + i + '.name" value="' + esc(b.name) + '"></div><div class="field"><label>Comisión %</label><input type="number" inputmode="numeric" data-num="1" data-k="barbers.' + i + '.commissionPct" value="' + b.commissionPct + '"></div></div>' +
         '<div class="hours">' + [1, 2, 3, 4, 5, 6, 0].map(d => '<b>' + T.DOW_SHORT[d] + '</b><input data-hours="' + i + '.' + d + '" value="' + esc(T.rangesToText(b.schedule[d])) + '" placeholder="Cerrado — o 09:00-13:00, 16:00-20:00" aria-label="Horario ' + T.DOW[d] + '">').join('') + '</div>' +
-        '<div class="row between"><label class="row" style="margin:0"><input type="checkbox" style="width:auto;min-height:0" data-k="barbers.' + i + '.active"' + (b.active !== false ? ' checked' : '') + '> Atiende</label><button class="btn sm danger" data-act="delbarber" data-i="' + i + '">Eliminar</button></div></div>').join('') +
+        '<div class="row between"><label class="row" style="margin:0"><input type="checkbox" style="width:auto;min-height:0" data-k="barbers.' + i + '.active"' + (b.active !== false ? ' checked' : '') + '> Atiende</label><span class="row"><button class="btn sm" data-act="barberlink" data-i="' + i + '">Link del barbero</button><button class="btn sm danger" data-act="delbarber" data-i="' + i + '">Eliminar</button></span></div></div>').join('') +
       '<button class="btn" data-act="addbarber">+ Agregar barbero</button></div></details>' +
       '<details class="card"><summary>Horarios bloqueados (' + S.blocks.filter(b => b.date >= T.dateStr(new Date())).length + ')</summary><div class="stack" style="margin-top:12px">' +
       (S.blocks.filter(b => b.date >= T.dateStr(new Date())).sort((a, b) => a.date.localeCompare(b.date)).map(b => '<div class="row between"><span>' + T.dateLabel(b.date) + ' · ' + (b.barberId ? esc(T.barberName(S, b.barberId)) : 'todo el local') + ' · ' + (b.start === '00:00' && b.end === '24:00' ? 'todo el día' : b.start + '–' + b.end) + (b.reason ? ' · ' + esc(b.reason) : '') + '</span><button class="btn sm danger" data-act="delblock" data-id="' + b.id + '">Quitar</button></div>').join('') || '<span class="muted">Ninguno.</span>') + '</div></details>' +
@@ -239,6 +243,28 @@
       '<button class="btn" data-act="export">Descargar copia de seguridad</button>' +
       (REMOTE ? '' : '<label class="btn" style="text-align:center;margin:0">Restaurar copia<input type="file" id="imp" accept=".json,application/json" class="hidden"></label>' +
       '<button class="btn" data-act="demo">Cargar datos de ejemplo</button><button class="btn danger" data-act="wipe">Borrar todo y empezar de cero</button>') + '</div></details></div>';
+  }
+
+  function renderAjustesBarbero() {
+    const base = location.href.replace(/admin\.html.*$/, '').replace(/[?#].*$/, '');
+    const link = base + 'index.html?s=' + Data.slug;
+    main.innerHTML = '<div class="stack"><div class="card stack"><h3>Hola, ' + esc(T.barberName(S, BARBER)) + '</h3><p class="muted small" style="margin:0">Acá ves y manejás tu agenda. Los precios, horarios y avisos los maneja el dueño del local.</p></div>' +
+      '<div class="card stack"><h3>Link para tus clientes</h3><input readonly value="' + esc(link) + '" id="lnk" aria-label="Link de reservas"><button class="btn" data-act="copylink">Copiar link</button></div>' +
+      '<button class="btn" data-act="logout">Cerrar sesión</button></div>';
+  }
+
+  async function dlgBarberLink(i) {
+    const b = S.barbers[i];
+    await queue; // asegura que el barbero ya esté guardado en la base
+    const r = await Data.barberKey(KEY, b.id);
+    if (!r || r.ok === false) { toast('No se pudo crear el link. Revisá la conexión e intentá de nuevo.'); return; }
+    const base = location.href.replace(/admin\.html.*$/, '').replace(/[?#].*$/, '');
+    const link = base + 'admin.html?s=' + Data.slug + '#b=' + r.key;
+    const msg = 'Hola ' + b.name + '! Este es tu link para ver tu agenda de turnos en ' + S.settings.name + ' (es personal, no lo compartas): ' + link;
+    openDlg('<h2>Link de ' + esc(b.name) + '</h2><p class="muted small" style="margin:0">Mandáselo por WhatsApp. Con ese link ve y maneja sólo su agenda. Si generás otro link para el mismo barbero, el anterior deja de funcionar.</p>' +
+      '<input readonly value="' + esc(link) + '" id="blnk" aria-label="Link del barbero">' +
+      '<a class="btn primary block" target="_blank" rel="noopener" href="https://wa.me/?text=' + encodeURIComponent(msg) + '">Enviar por WhatsApp</a>' +
+      '<button type="button" class="btn block" data-act="copyblink">Copiar link</button><button type="button" class="btn block" data-close>Cerrar</button>', null);
   }
 
   function notifyCard() {
@@ -353,7 +379,7 @@
     else if (act === 'remind') dlgRemind();
     else if (act === 'delblock') { S.blocks = S.blocks.filter(b => b.id !== id); save(); render(); toast('Bloqueo quitado'); }
     else if (act === 'csv') exportCsv();
-    else if (act === 'logout') { try { localStorage.removeItem(keyName()); } catch (x) { /* ok */ } KEY = ''; location.reload(); }
+    else if (act === 'logout') { try { localStorage.removeItem(keyName()); localStorage.removeItem(bkeyName()); } catch (x) { /* ok */ } KEY = ''; location.reload(); }
     else if (act === 'notifysave') notifySave();
     else if (act === 'tgdetect') tgDetect();
     else if (act === 'notifytest') { Data.testNotify(KEY).then(r => toast(r && r.ok === false ? (r.error || 'No se pudo') : 'Prueba enviada: revisá Telegram')); }
@@ -362,6 +388,8 @@
     else if (act === 'delsvc') { const i = Number(el.dataset.i); if (window.confirm('¿Eliminar "' + S.services[i].name + '"? Los turnos ya dados se conservan.')) { S.services.splice(i, 1); save(); render(); } }
     else if (act === 'addbarber') { S.barbers.push({ id: 'b' + T.uid(), name: 'Nuevo barbero', commissionPct: 50, active: true, schedule: JSON.parse(JSON.stringify(S.barbers[0] ? S.barbers[0].schedule : T.defaultState().barbers[0].schedule)) }); save(); render(); }
     else if (act === 'delbarber') { const i = Number(el.dataset.i); if (S.barbers.length <= 1) { toast('Tiene que haber al menos un barbero'); return; } if (window.confirm('¿Eliminar a ' + S.barbers[i].name + '? Sus turnos futuros seguirán en la agenda.')) { S.barbers.splice(i, 1); save(); render(); } }
+    else if (act === 'barberlink') dlgBarberLink(Number(el.dataset.i));
+    else if (act === 'copyblink') { const i = $('#blnk'); i.select(); try { navigator.clipboard.writeText(i.value); } catch (x) { document.execCommand('copy'); } toast('Link copiado'); }
     else if (act === 'export') Store.download('turnos-copia-' + T.dateStr(new Date()) + '.json', JSON.stringify(S, null, 1), 'application/json');
     else if (act === 'demo') { if (window.confirm('Esto reemplaza los datos actuales por datos de ejemplo. ¿Seguir?')) { seedDemo(); render(); toast('Datos de ejemplo cargados'); } }
     else if (act === 'wipe') { if (window.confirm('Se borra TODO (turnos, clientes, ajustes). ¿Seguro?')) { S = T.defaultState(); save(); brand(); render(); toast('Listo, empezás de cero'); } }
@@ -369,7 +397,7 @@
 
   function opts(list, sel) { return list.map(o => '<option value="' + esc(o[0]) + '"' + (o[0] === sel ? ' selected' : '') + '>' + esc(o[1]) + '</option>').join(''); }
   const svcOpts = () => S.services.filter(s => s.active !== false).map(s => [s.id, s.name + ' · ' + s.duration + ' min · ' + T.money(s.price)]);
-  const barOpts = () => S.barbers.filter(b => b.active !== false).map(b => [b.id, b.name]);
+  const barOpts = () => S.barbers.filter(b => b.active !== false && (!BARBER || b.id === BARBER)).map(b => [b.id, b.name]);
 
   function dlgCobrar(a) {
     openDlg('<h2>Cobrar a ' + esc(a.name) + '</h2><div class="muted small">' + esc(a.serviceName) + (a.deposit && a.deposit.paid ? ' · seña ya cobrada ' + T.money(a.deposit.amount) : '') + '</div>' +

@@ -1,0 +1,95 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="robots" content="noindex">
+<meta name="theme-color" content="#121212">
+<title>Crear barbería</title>
+<link rel="icon" href="icons/icon-192.png">
+<link rel="stylesheet" href="styles.css">
+</head>
+<body>
+<main class="wrap stack" style="padding-top:6vh">
+  <h1>Crear una barbería</h1>
+  <p class="muted" style="margin:0">Poné el nombre y te armo los links para mandar por WhatsApp.</p>
+
+  <div class="card stack" id="form">
+    <div class="field"><label for="sec">Tu código (sólo vos lo sabés)</label><input id="sec" type="password" autocomplete="off"></div>
+    <div class="field"><label for="nm">Nombre de la barbería</label><input id="nm" placeholder="Ej: Barbería Don Lucho" autocomplete="off"></div>
+    <div id="err" class="notice bad hidden" role="alert"></div>
+    <button class="btn primary block" id="go">Crear barbería</button>
+  </div>
+
+  <div id="out" class="stack hidden">
+    <div class="notice">¡Listo! <b id="shopName"></b> ya existe. Mandale el mensaje al dueño: tiene los dos links.</div>
+    <div class="card stack">
+      <h3>Para los clientes</h3>
+      <input readonly id="lc" aria-label="Link de reservas">
+      <button class="btn" data-copy="lc">Copiar</button>
+    </div>
+    <div class="card stack">
+      <h3>Para el dueño (panel privado)</h3>
+      <input readonly id="lo" aria-label="Link del panel">
+      <button class="btn" data-copy="lo">Copiar</button>
+      <p class="muted small" style="margin:0">Este link es la llave del local: no lo publiques ni lo mandes a los clientes.</p>
+    </div>
+    <a class="btn primary block" id="wa" target="_blank" rel="noopener">Mandar los dos links por WhatsApp</a>
+    <button class="btn ghost block" id="again">Crear otra barbería</button>
+  </div>
+</main>
+<script src="config.js"></script>
+<script>
+(function () {
+  'use strict';
+  var cfg = window.TURNOS_CONFIG || {};
+  var $ = function (s) { return document.querySelector(s); };
+  var base = location.href.replace(/crear\.html.*$/, '').replace(/[?#].*$/, '');
+  try { $('#sec').value = localStorage.getItem('turnos.creador') || ''; } catch (e) { /* ok */ }
+
+  function show(msg) { var e = $('#err'); e.textContent = msg; e.classList.remove('hidden'); }
+
+  $('#go').addEventListener('click', async function () {
+    var sec = $('#sec').value.trim(), name = $('#nm').value.trim(), btn = $('#go');
+    $('#err').classList.add('hidden');
+    if (!sec) return show('Poné tu código.');
+    if (name.length < 2) return show('Poné el nombre de la barbería.');
+    btn.disabled = true; btn.textContent = 'Creando…';
+    try {
+      var r = await fetch(cfg.supabaseUrl + '/rest/v1/rpc/bb_create_shop', {
+        method: 'POST', headers: { apikey: cfg.supabaseKey, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ p_secret: sec, p_name: name })
+      });
+      var j = await r.json().catch(function () { return {}; });
+      if (!r.ok) {
+        var m = String(j.message || '');
+        show(m.indexOf('auth') >= 0 ? 'El código no es correcto.' : m.indexOf('name') >= 0 ? 'Revisá el nombre.' : 'No se pudo crear. Probá de nuevo.');
+        return;
+      }
+      try { localStorage.setItem('turnos.creador', sec); } catch (e) { /* ok */ }
+      var client = base + 'index.html?s=' + j.slug, owner = base + 'admin.html?s=' + j.slug + '#k=' + j.key;
+      $('#shopName').textContent = name; $('#lc').value = client; $('#lo').value = owner;
+      var msg = 'Hola! Ya está lista la página de turnos de ' + name + '.\n\n' +
+        '1) Link para tus clientes (ponelo en Instagram y WhatsApp): ' + client + '\n\n' +
+        '2) Tu panel privado para ver y manejar los turnos (guardalo, es solo tuyo): ' + owner;
+      $('#wa').href = 'https://wa.me/?text=' + encodeURIComponent(msg);
+      $('#form').classList.add('hidden'); $('#out').classList.remove('hidden');
+    } catch (e) {
+      show('No hay conexión. Probá de nuevo.');
+    } finally { btn.disabled = false; btn.textContent = 'Crear barbería'; }
+  });
+
+  document.addEventListener('click', function (e) {
+    var c = e.target.closest('[data-copy]'); if (!c) return;
+    var i = $('#' + c.dataset.copy); i.select();
+    try { navigator.clipboard.writeText(i.value); } catch (x) { document.execCommand('copy'); }
+    c.textContent = 'Copiado ✓'; setTimeout(function () { c.textContent = 'Copiar'; }, 1500);
+  });
+  $('#again').addEventListener('click', function () {
+    $('#nm').value = ''; $('#lc').value = ''; $('#lo').value = '';
+    $('#out').classList.add('hidden'); $('#form').classList.remove('hidden'); $('#nm').focus();
+  });
+})();
+</script>
+</body>
+</html>
