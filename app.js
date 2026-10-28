@@ -29,6 +29,7 @@
     const h = (st.accent || '#c8a24a').replace('#', '');
     const r = parseInt(h.substr(0, 2), 16), g = parseInt(h.substr(2, 2), 16), b = parseInt(h.substr(4, 2), 16);
     root.setProperty('--accent-ink', (0.299 * r + 0.587 * g + 0.114 * b) > 150 ? '#1a1405' : '#ffffff');
+    window.__RUBRO = st.rubro || ''; if (window.Rubro) Rubro.run();
     $('#brand').textContent = st.name;
     $('#tag').textContent = st.tagline || '';
     document.title = 'Reservar turno · ' + st.name;
